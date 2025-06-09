@@ -27,7 +27,7 @@ export default function ChatPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isClient, setIsClient] = useState(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Format time consistently to avoid hydration mismatches
   const formatTime = (date: Date) => {
@@ -40,8 +40,13 @@ export default function ChatPage() {
   };
 
   // Format message content with proper links and structure
-  const formatMessageContent = (content: string) => {
+  const formatMessageContent = (content: string, messageType: 'user' | 'assistant' = 'assistant') => {
     if (!content) return '';
+
+    // Define link colors based on message type
+    const linkClasses = messageType === 'user' 
+      ? 'text-blue-100 hover:text-white underline break-all' 
+      : 'text-blue-600 hover:text-blue-800 underline break-all';
 
     // Split content by lines
     const lines = content.split('\n');
@@ -66,7 +71,7 @@ export default function ChatPage() {
         const parts = line.split(/(\(https?:\/\/[^\s)]+\))/g);
         return (
           <div key={lineIndex} className="mb-2 ml-4">
-            <span className="font-medium text-slate-800">
+            <span className="font-medium">
               {parts.map((part, partIndex) => {
                 if (part.match(/^\(https?:\/\/[^\s)]+\)$/)) {
                   const url = part.slice(1, -1); // Remove parentheses
@@ -76,7 +81,7 @@ export default function ChatPage() {
                       href={url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-blue-600 hover:text-blue-800 underline break-all"
+                      className={linkClasses}
                     >
                       (link)
                     </a>
@@ -103,7 +108,7 @@ export default function ChatPage() {
                   href={part}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-blue-600 hover:text-blue-800 underline break-all"
+                  className={linkClasses}
                 >
                   {part}
                 </a>
@@ -231,7 +236,7 @@ export default function ChatPage() {
                 <div
                   key={message.id}
                   className={`flex items-start space-x-3 animate-in slide-in-from-bottom-2 duration-300 ${
-                    message.type === 'user' ? 'flex-row-reverse space-x-reverse' : ''
+                    message.type === 'user' ? 'flex-row-reverse space-x-reverse justify-start' : 'justify-start'
                   }`}
                 >
                   <div className={`p-2 rounded-lg shrink-0 ${
@@ -245,14 +250,14 @@ export default function ChatPage() {
                       <Bot className="h-5 w-5" />
                     )}
                   </div>
-                  <div className={`min-w-0 flex-1 max-w-[85%] ${message.type === 'user' ? 'text-right' : ''}`}>
-                    <div className={`p-4 rounded-2xl break-words ${
+                  <div className={`min-w-0 max-w-[85%] ${message.type === 'user' ? 'flex flex-col items-end' : 'flex flex-col items-start'}`}>
+                    <div className={`p-4 rounded-2xl break-words inline-block ${
                       message.type === 'user'
-                        ? 'bg-blue-600 text-white ml-auto'
+                        ? 'bg-blue-600 text-white'
                         : 'bg-slate-100 text-slate-800'
                     }`}>
                       <div className="text-sm leading-relaxed overflow-hidden">
-                        {formatMessageContent(message.content)}
+                        {formatMessageContent(message.content, message.type)}
                       </div>
                     </div>
                     <p className="text-xs text-slate-500 mt-2 px-2">
@@ -283,26 +288,44 @@ export default function ChatPage() {
 
         {/* Input Area */}
         <Card className="p-4 bg-white/80 backdrop-blur-sm border-0 shadow-lg">
-          <div className="flex space-x-3">
-            <Input
-              ref={inputRef}
-              placeholder="Ask me to research anything on the web..."
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              onKeyPress={handleKeyPress}
-              disabled={isLoading}
-              className="flex-1 border-slate-200 focus:border-blue-500 focus:ring-blue-500"
-            />
+          <div className="flex items-end space-x-3">
+            <div className="flex-1">
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Ask me to research anything...
+              </label>
+              <textarea
+                ref={inputRef}
+                placeholder="Type your question here (e.g., 'Find 3 companies on LinkedIn that are in Berlin and operate in the AI space')"
+                value={inputValue}
+                onChange={(e) => {
+                  if (e.target.value.length <= 1000) {
+                    setInputValue(e.target.value);
+                  }
+                }}
+                onKeyPress={handleKeyPress}
+                disabled={isLoading}
+                rows={3}
+                maxLength={1000}
+                className="w-full p-3 border border-slate-200 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 resize-none transition-all duration-200 text-sm leading-relaxed bg-white"
+              />
+            </div>
             <Button
               onClick={handleSendMessage}
               disabled={!inputValue.trim() || isLoading}
-              className="px-6 bg-blue-600 hover:bg-blue-700 text-white shadow-md hover:shadow-lg transition-all duration-200"
+              className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white shadow-md hover:shadow-lg transition-all duration-200 self-end h-fit"
             >
-              <Send className="h-4 w-4" />
+              {isLoading ? (
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <Send className="h-4 w-4" />
+              )}
             </Button>
           </div>
-          <div className="mt-3 text-xs text-slate-500 text-center">
-            Press Enter to send • Shift + Enter for new line
+          <div className="mt-3 text-xs text-slate-500 flex items-center justify-between">
+            <span>Press Enter to send • Shift + Enter for new line</span>
+            <span className="text-slate-400">
+              {inputValue.length}/1000
+            </span>
           </div>
         </Card>
       </div>
