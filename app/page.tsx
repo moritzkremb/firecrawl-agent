@@ -39,6 +39,83 @@ export default function ChatPage() {
     });
   };
 
+  // Format message content with proper links and structure
+  const formatMessageContent = (content: string) => {
+    if (!content) return '';
+
+    // Split content by lines
+    const lines = content.split('\n');
+    
+    return lines.map((line, lineIndex) => {
+      // Skip empty lines
+      if (!line.trim()) {
+        return <br key={lineIndex} />;
+      }
+
+      // Handle function call indicators (lines starting with icons)
+      if (line.match(/^[🕷️🔍]/)) {
+        return (
+          <div key={lineIndex} className="mb-3 p-2 bg-blue-50 rounded-lg border-l-4 border-blue-400">
+            <span className="text-blue-700 font-medium text-xs">{line}</span>
+          </div>
+        );
+      }
+
+      // Handle numbered list items
+      if (line.match(/^\d+\.\s/)) {
+        const parts = line.split(/(\(https?:\/\/[^\s)]+\))/g);
+        return (
+          <div key={lineIndex} className="mb-2 ml-4">
+            <span className="font-medium text-slate-800">
+              {parts.map((part, partIndex) => {
+                if (part.match(/^\(https?:\/\/[^\s)]+\)$/)) {
+                  const url = part.slice(1, -1); // Remove parentheses
+                  return (
+                    <a
+                      key={partIndex}
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:text-blue-800 underline break-all"
+                    >
+                      (link)
+                    </a>
+                  );
+                }
+                return part;
+              })}
+            </span>
+          </div>
+        );
+      }
+
+      // Handle regular content with URL detection
+      const urlRegex = /(https?:\/\/[^\s)]+)/g;
+      const parts = line.split(urlRegex);
+      
+      return (
+        <div key={lineIndex} className="mb-2">
+          {parts.map((part, partIndex) => {
+            if (part.match(urlRegex)) {
+              return (
+                <a
+                  key={partIndex}
+                  href={part}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 hover:text-blue-800 underline break-all"
+                >
+                  {part}
+                </a>
+              );
+            }
+            return <span key={partIndex} className="break-words">{part}</span>;
+          })}
+        </div>
+      );
+    });
+  };
+
   // Set client flag after hydration
   useEffect(() => {
     setIsClient(true);
@@ -93,9 +170,12 @@ export default function ChatPage() {
       
       let content = data.response || 'Sorry, I couldn\'t generate a response.';
       
-      // Add function call indicator
-      if (data.functionCalled && data.scrapedUrl) {
-        content = `🕷️ *Scraped: ${data.scrapedUrl}*\n\n${content}`;
+      // Add function call indicator for search
+      if (data.functionCalled && data.searchQuery) {
+        const isSpecificSite = data.searchQuery.includes('site:');
+        const icon = isSpecificSite ? '🕷️' : '🔍';
+        const action = isSpecificSite ? 'Searched site' : 'Web search';
+        content = `${icon} *${action}: "${data.searchQuery}" (${data.resultsCount || 0} results)*\n\n${content}`;
       }
       
       const assistantMessage: Message = {
@@ -129,7 +209,7 @@ export default function ChatPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
-      <div className="container mx-auto max-w-4xl h-screen flex flex-col p-4">
+      <div className="container mx-auto max-w-5xl h-screen flex flex-col p-4 overflow-hidden">
         {/* Header */}
         <Card className="mb-4 p-6 bg-white/80 backdrop-blur-sm border-0 shadow-lg">
           <div className="flex items-center space-x-3">
@@ -165,13 +245,15 @@ export default function ChatPage() {
                       <Bot className="h-5 w-5" />
                     )}
                   </div>
-                  <div className={`max-w-[80%] ${message.type === 'user' ? 'text-right' : ''}`}>
-                    <div className={`p-4 rounded-2xl ${
+                  <div className={`min-w-0 flex-1 max-w-[85%] ${message.type === 'user' ? 'text-right' : ''}`}>
+                    <div className={`p-4 rounded-2xl break-words ${
                       message.type === 'user'
                         ? 'bg-blue-600 text-white ml-auto'
                         : 'bg-slate-100 text-slate-800'
                     }`}>
-                      <p className="text-sm leading-relaxed">{message.content}</p>
+                      <div className="text-sm leading-relaxed overflow-hidden">
+                        {formatMessageContent(message.content)}
+                      </div>
                     </div>
                     <p className="text-xs text-slate-500 mt-2 px-2">
                       {formatTime(message.timestamp)}

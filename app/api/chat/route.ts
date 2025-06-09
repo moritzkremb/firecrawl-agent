@@ -12,77 +12,97 @@ const openai = new OpenAI({
 // Step 1: Define function schemas for OpenAI function calling
 const functions = [
   {
-    name: "scrape_website",
-    description: "Scrape content from a website URL and convert it to markdown. Use this when the user asks about information from a specific website or URL.",
+    name: "search_web",
+    description: "Search the web for information and get full content from search results. Can handle both general searches and specific website content. When user provides a specific URL, use 'site:domain.com' to search that specific site. When user asks general questions, search the open web.",
     parameters: {
       type: "object",
       properties: {
-        url: {
+        query: {
           type: "string",
-          description: "The website URL to scrape (must include http:// or https://)"
+          description: "The search query. For specific URLs, format as 'site:domain.com' or 'site:domain.com your search terms'. For general searches, use natural language queries."
         },
-        formats: {
-          type: "array",
-          items: {
-            type: "string",
-            enum: ["markdown", "html"]
-          },
-          description: "Output formats to return",
-          default: ["markdown"]
+        limit: {
+          type: "number",
+          description: "Number of search results to return and scrape (default: 5, max: 10)",
+          default: 5,
+          minimum: 1,
+          maximum: 10
+        },
+        lang: {
+          type: "string",
+          description: "Language for search results",
+          default: "en"
+        },
+        country: {
+          type: "string", 
+          description: "Country code for localized results",
+          default: "us"
         }
       },
-      required: ["url"]
+      required: ["query"]
     }
   }
 ];
 
-// Step 4: Firecrawl API integration function
-async function scrapeWithFirecrawl(url: string, formats: string[] = ['markdown']) {
+// Step 4: Firecrawl Search API integration function
+async function searchWithFirecrawl(query: string, limit: number = 5, lang: string = "en", country: string = "us") {
   try {
-    console.log(`🕷️ Scraping ${url} with Firecrawl...`);
+    console.log(`🔍 Searching web for: "${query}" with Firecrawl...`);
     
     if (!process.env.FIRECRAWL_API_KEY) {
       throw new Error('Firecrawl API key not configured');
     }
 
-    const response = await fetch('https://api.firecrawl.dev/v1/scrape', {
+    const response = await fetch('https://api.firecrawl.dev/v1/search', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${process.env.FIRECRAWL_API_KEY}`
       },
       body: JSON.stringify({
-        url: url,
-        formats: formats
+        query: query,
+        limit: Math.min(limit, 10), // Cap at 10 for performance
+        lang: lang,
+        country: country,
+        scrapeOptions: {
+          formats: ["markdown"]
+        }
       })
     });
 
     if (!response.ok) {
-      throw new Error(`Firecrawl API error: ${response.status} ${response.statusText}`);
+      throw new Error(`Firecrawl Search API error: ${response.status} ${response.statusText}`);
     }
 
     const data = await response.json();
-    console.log(`✅ Successfully scraped ${url}`);
+    console.log(`✅ Successfully searched for: "${query}", found ${data.data?.length || 0} results`);
     
-    if (data.success && data.data) {
+    if (data.success && data.data && data.data.length > 0) {
       return {
         success: true,
-        url: url,
-        title: data.data.metadata?.title || 'No title',
-        markdown: data.data.markdown || 'No content available',
-        metadata: data.data.metadata || {}
+        query: query,
+        resultsCount: data.data.length,
+        results: data.data.map((result: any) => ({
+          title: result.title || 'No title',
+          url: result.url || '',
+          description: result.description || '',
+          markdown: result.markdown || 'No content available',
+          metadata: result.metadata || {}
+        })),
+        summary: `Found ${data.data.length} results for "${query}"`
       };
     } else {
-      throw new Error('Firecrawl returned unsuccessful response');
+      throw new Error('Firecrawl search returned no results');
     }
     
   } catch (error) {
-    console.error(`❌ Error scraping ${url}:`, error);
+    console.error(`❌ Error searching for "${query}":`, error);
     return {
       success: false,
-      url: url,
+      query: query,
       error: error instanceof Error ? error.message : 'Unknown error occurred',
-      markdown: `Failed to scrape ${url}. Error: ${error instanceof Error ? error.message : 'Unknown error'}`
+      results: [],
+      summary: `Failed to search for "${query}". Error: ${error instanceof Error ? error.message : 'Unknown error'}`
     };
   }
 }
@@ -128,11 +148,16 @@ export async function POST(req: NextRequest) {
       const functionName = toolCall.function.name;
       const functionArgs = JSON.parse(toolCall.function.arguments);
       
-      if (functionName === 'scrape_website') {
-        // Step 4: Execute the Firecrawl API call
-        const scrapedData = await scrapeWithFirecrawl(functionArgs.url, functionArgs.formats || ['markdown']);
+      if (functionName === 'search_web') {
+        // Execute the Firecrawl Search API call
+        const searchData = await searchWithFirecrawl(
+          functionArgs.query, 
+          functionArgs.limit || 5,
+          functionArgs.lang || 'en',
+          functionArgs.country || 'us'
+        );
         
-        // Step 5: Send function result back to OpenAI
+        // Send search results back to OpenAI
         const secondCompletion = await openai.chat.completions.create({
           model: 'gpt-4o-mini',
           messages: [
@@ -140,7 +165,7 @@ export async function POST(req: NextRequest) {
             message,
             {
               role: "tool",
-              content: JSON.stringify(scrapedData),
+              content: JSON.stringify(searchData),
               tool_call_id: toolCall.id
             }
           ],
@@ -148,7 +173,7 @@ export async function POST(req: NextRequest) {
           max_tokens: 1500,
         });
         
-        const finalResponse = secondCompletion.choices[0]?.message?.content || 'Unable to process the scraped data.';
+        const finalResponse = secondCompletion.choices[0]?.message?.content || 'Unable to process the search results.';
         
         return NextResponse.json({ 
           response: finalResponse,
@@ -158,7 +183,8 @@ export async function POST(req: NextRequest) {
             total_tokens: (completion.usage?.total_tokens || 0) + (secondCompletion.usage?.total_tokens || 0)
           },
           functionCalled: true,
-          scrapedUrl: functionArgs.url
+          searchQuery: functionArgs.query,
+          resultsCount: searchData.resultsCount || 0
         });
       }
     }
