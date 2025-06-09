@@ -168,10 +168,28 @@ export default function ChatPage() {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to get AI response');
+        const errorText = await response.text();
+        console.error('API Error Response:', errorText);
+        throw new Error(`API request failed: ${response.status} ${response.statusText}`);
       }
 
-      const data = await response.json();
+      // Check if response has content before parsing
+      const responseText = await response.text();
+      if (!responseText || responseText.trim() === '') {
+        throw new Error('Empty response from server');
+      }
+
+      let data;
+      try {
+        console.log('🔍 Attempting to parse response:', responseText.substring(0, 200) + '...');
+        data = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('JSON Parse Error:', parseError);
+        console.error('Response text that failed to parse:', responseText);
+        console.error('Response type:', typeof responseText);
+        console.error('Response length:', responseText.length);
+        throw new Error(`Invalid JSON response from server. Response: "${responseText.substring(0, 100)}..."`);
+      }
       
       let content = data.response || 'Sorry, I couldn\'t generate a response.';
       
@@ -196,7 +214,7 @@ export default function ChatPage() {
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
         type: 'assistant',
-        content: 'Sorry, I encountered an error. Please make sure your OpenAI API key is configured.',
+        content: `Sorry, I encountered an error: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again.`,
         timestamp: new Date(),
       };
       setMessages(prev => [...prev, errorMessage]);
